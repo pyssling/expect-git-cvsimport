@@ -1,5 +1,5 @@
 /* ----------------------------------------------------------------------------
- * SlaveDrvMain.c --
+ * SlaveDrvMain.cpp --
  *
  *	Program entry for the Win32 slave driver helper application.
  *
@@ -12,10 +12,10 @@
  * would appreciate credit if this program or parts of it are used.
  * 
  * Copyright (c) 1997 Mitel Corporation
- *	work by Gordon Chaffee <chaffee@bmrc.berkeley.edu>
+ *	work by Gordon Chaffee <chaffee@bmrc.berkeley.edu> for the WinNT port.
  *
- * Copyright (c) 2001 Telindustrie, LLC
- *	work by David Gravereaux <davygrvy@pobox.com>
+ * Copyright (c) 2001-2002 Telindustrie, LLC
+ *	work by David Gravereaux <davygrvy@pobox.com> for any Win32 OS.
  *
  * ----------------------------------------------------------------------------
  * URLs:    http://expect.nist.gov/
@@ -30,94 +30,148 @@
 
 
 #ifdef _MSC_VER
-    /* Only do this when MSVC++ is compiling us. */
+    // Only do this when MSVC++ is compiling us.
 #   ifdef USE_TCL_STUBS
 #	pragma comment (lib, "tclstub" \
 		STRINGIFY(JOIN(TCL_MAJOR_VERSION,TCL_MINOR_VERSION)) ".lib")
 #	if !defined(_MT) || !defined(_DLL) || defined(_DEBUG)
-	    /*
-	     * This fixes a bug with how the Stubs library was compiled.
-	     * The requirement for msvcrt.lib from tclstubXX.lib must
-	     * be removed.  This bug has been fixed since 8.4a3, I beleive.
-	     */
+	    // This fixes a bug with how the Stubs library was compiled.
+	    // The requirement for msvcrt.lib from tclstubXX.lib must
+	    // be removed.  This bug has been fixed since 8.4a3, I beleive.
 #	    pragma comment(linker, "-nodefaultlib:msvcrt.lib")
 #	endif
+#   else
+#	error "Can only use with Stubs, sorry"
 #   endif
 #endif
 
-/* local protos */
+
+// local protos
+static ExpSpawnClientTransport *ExpWinSpawnOpenClientTransport(const char *name);
+static ExpSlaveTrap *ExpWinSlaveOpenTrap(const char *meth, int argc, char * const argv[]);
+static int ExpWinSlaveEvents (ExpSpawnClientTransport *transport, ExpSlaveTrap *masterCtrl);
 static void SetArgv(int *argcPtr, char ***argvPtr);
 
 
 int
-#ifdef _UNICODE
-wmain (void)
-#else
 main (void)
-#endif
 {
-    int argc;			    // Number of command-line arguments.
-    char **argv;		    // Values of command-line arguments.
-    ExpSpawnTransportCli *tclient;  // class pointer of transport client.
-    ExpSlaveTrap *masterCtrl;	    // trap method class pointer.
+    int argc;				// Number of command-line arguments.
+    char **argv;			// Values of command-line arguments.
+    ExpSpawnClientTransport *tclient;	// class pointer of transport client.
+    ExpSlaveTrap *slaveCtrl;		// trap method class pointer.
 
 
     //  We use a few APIs from Tcl, dynamically load it now.
+    //
     ExpDynloadTclStubs();
 
     //  Select the unicode or ascii winprocs. Works in cooperation with
     //  Tcl_WinUtfToTChar().
+    //
     ExpWinInit();
 
-    //  Use our custom commandline parser
+    //  Use our custom commandline parser.
+    //
     SetArgv(&argc, &argv);
 
     if (argc < 4) {
-	EXP_LOG0(MSG_IO_ARGSWRONG);
+	return 3;
     }
 
-    // Open the client side of our IPC transport.
-    tclient = ExpWinSpawnOpenTransport(argv[1]);
+    //  Open the client side of our IPC transport that connects us back
+    //  to Expect.
+    //
+    tclient = ExpWinSpawnOpenClientTransport(argv[1]);
+    if (tclient == 0L) return 4;
 
-    //  Create the process to be intercepted within the trap method requested.
-    masterCtrl = ExpWinSlaveOpenTrap(argv[2], argc-3, &argv[3]);
+    //  Create the process to be intercepted within the trap method requested
+    //  on the commandline.
+    //
+    slaveCtrl = ExpWinSlaveOpenTrap(argv[2], argc-3, &argv[3]);
+    if (slaveCtrl == 0L) return 5;
 
     //  Process events until the slave closes.
     //
     //  We block on input/events coming from the slave and
     //  input from the IPC coming from expect.
-    return ExpWinSlaveEvents(tclient, masterCtrl);
+    //
+    return ExpWinSlaveDoEvents(tclient, slaveCtrl);
 }
 
 /*
-    HANDLE hConsoleInW;	// Master side (us), writeable input handle.
-    HANDLE hConsoleOut;	// Master side (us), readable output handle.
-    if ((hConsoleInW = CreateFile(
-	    _T("CONIN$"),
-	    GENERIC_WRITE,
-	    FILE_SHARE_WRITE,
-	    NULL,
-	    OPEN_EXISTING,
-	    0,
-	    NULL)) == INVALID_HANDLE_VALUE)
-    {
-	EXP_LOG2(MSG_DT_CANTGETCONSOLEHANDLE, "CONIN$",
-		ExpSyslogGetSysMsg(GetLastError()));
-    }
-    if ((hConsoleOut = CreateFile(
-	    _T("CONOUT$"),
-	    GENERIC_READ|GENERIC_WRITE,
-	    FILE_SHARE_READ|FILE_SHARE_WRITE,
-	    NULL, 
-	    OPEN_EXISTING,
-	    0,
-	    NULL)) == INVALID_HANDLE_VALUE)
-    {
-	EXP_LOG2(MSG_DT_CANTGETCONSOLEHANDLE, "CONOUT$",
-		ExpSyslogGetSysMsg(GetLastError()));
-    }
+ *----------------------------------------------------------------------
+ *  ExpWinSpawnOpenTransport --
+ *
+ *	The factory method for creating the client IPC transport from
+ *	the name asked of it.
+ *
+ *  Returns:
+ *	a polymorphed ExpSpawnClientTransport pointer or NULL for an error.
+ *
+ *----------------------------------------------------------------------
+ */
 
-*/
+ExpSpawnClientTransport *
+ExpWinSpawnOpenClientTransport(const char *name)
+{
+    // If the first 2 chars are 'm' and 'b', then it's a mailbox.
+    //
+    if (name[0] == 'm' && name[1] == 'b') {
+	return new ExpSpawnMailboxClient(name);
+    }
+    /* 'sk' is a socket transport.  This is a no-op for now.
+    else if (name[0] == 's' && name[1] == 'k') {
+	return new ExpSpawnSocketCli(name);
+    } */
+    // TODO: we can add more transports here when the time is right
+    //
+    else return 0L;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *  ExpWinSlaveOpenTrap --
+ *
+ *	The factory method for creating the trap class instance.
+ *
+ *  Returns:
+ *	a polymorphed ExpSpawnTrap pointer or NULL for an error.
+ *
+ *----------------------------------------------------------------------
+ */
+
+ExpSlaveTrap *
+ExpWinSlaveOpenTrap(const char *meth, int argc, char * const argv[])
+{
+    if (!strcmp(meth, "dbg")) {
+	return new ExpSlaveTrapDbg(argc, argv);
+    }
+    /* TODO: a simple pipe trap would be good.
+	[spawn -open <chanID>] does the same, though.
+    else if (!strcmp(meth, "pipe")) {
+	return new ExpSlaveTrapPipe(argc, argv);
+    }*/
+    else return 0L;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *  ExpWinSlaveEvents --
+ *
+ *	Process all events for the slavedrv application.
+ *
+ *  Returns:
+ *	an exit code.
+ *
+ *----------------------------------------------------------------------
+ */
+
+int
+ExpWinSlaveEvents (ExpSpawnClientTransport *transport, ExpSlaveTrap *masterCtrl)
+{
+    return 0;
+}
 
 /*
  *-------------------------------------------------------------------------
@@ -146,7 +200,7 @@ main (void)
  *--------------------------------------------------------------------------
  */
 
-void
+static void
 SetArgv(
     int *argcPtr,		/* Filled with number of argument strings. */
     char ***argvPtr)		/* Filled with argument strings in UTF (malloc'd). */
@@ -154,30 +208,41 @@ SetArgv(
     char *p, *arg, *argSpace;
     char **argv;
     int argc, size, inquote, copy, slashes;
-    TCHAR *cmdLineExt;
-    Tcl_Encoding enc;
-    Tcl_DString ds;
+    Tcl_DString cmdLine;
+    WCHAR *cmdLineUni;
 
-    cmdLineExt = GetCommandLine();
+    Tcl_DStringInit(&cmdLine);
 
-    /*
-     * We might have compiled spawndrv.exe as a native NT app for unicode.
-     * This needs to be compile-time set rather than run-time as
-     * GetCommandLine() could be GetCommandLineW() rather than
-     * GetCommandLineA().  Tcl_WinTCharToUtf() is run-time based and will
-     * flop on it's face if used here in this case.
-     */
-#ifdef _UNICODE
-    enc = Tcl_GetEncoding(NULL, "unicode");
-#else
-    enc = NULL;  /* Use system. cp1252? */
+#ifdef _DEBUG
+    if (IsDebuggerPresent()) {
+#   ifdef _MSC_VER
+
+	/*
+	 *  There will be a unicode loss here.  I don't feel it's a bad
+	 *  trade-off when running in a debugger.
+	 *  cp1251 != utf-8, though.
+	 */
+	Tcl_DStringAppend(&cmdLine, MsvcDbg_GetCommandLine(), -1);
+
+#   else
+#	error "Need Debugger control for this IDE"
+#   endif
+    } else {
 #endif
 
-    Tcl_DStringInit(&ds);
-    Tcl_ExternalToUtfDString(enc, (CONST char *)cmdLineExt, _tcslen(cmdLineExt), &ds);
-    if (enc != NULL) {
-	Tcl_FreeEncoding(enc);
+	/*
+	 * Always get the unicode commandline because *ALL* Win32 platforms
+	 * support it.
+	 */
+	cmdLineUni = GetCommandLineW();
+	size = WideCharToMultiByte(CP_UTF8, 0, cmdLineUni, -1, 0, 0, NULL, NULL);
+	Tcl_DStringSetLength(&cmdLine, size);
+	WideCharToMultiByte(CP_UTF8, 0, cmdLineUni, -1,
+		Tcl_DStringValue(&cmdLine), size, NULL, NULL);
+
+#ifdef _DEBUG
     }
+#endif
 
     /*
      * Precompute an overly pessimistic guess at the number of arguments
@@ -185,7 +250,7 @@ SetArgv(
      */
 
     size = 2;
-    for (p = Tcl_DStringValue(&ds); *p != '\0'; p++) {
+    for (p = Tcl_DStringValue(&cmdLine); *p != '\0'; p++) {
 	if ((*p == ' ') || (*p == '\t')) {	/* INTL: ISO space. */
 	    size++;
 	    while ((*p == ' ') || (*p == '\t')) { /* INTL: ISO space. */
@@ -197,12 +262,12 @@ SetArgv(
 	}
     }
     argSpace = (char *) ckalloc(
-	    (unsigned) (size * sizeof(char *) + Tcl_DStringLength(&ds) + 1));
+	    (unsigned) (size * sizeof(char *) + Tcl_DStringLength(&cmdLine) + 1));
     argv = (char **) argSpace;
     argSpace += size * sizeof(char *);
     size--;
 
-    p = Tcl_DStringValue(&ds);
+    p = Tcl_DStringValue(&cmdLine);
     for (argc = 0; argc < size; argc++) {
 	argv[argc] = arg = argSpace;
 	while ((*p == ' ') || (*p == '\t')) {	/* INTL: ISO space. */
@@ -257,5 +322,5 @@ SetArgv(
     *argcPtr = argc;
     *argvPtr = argv;
 
-    Tcl_DStringFree(&ds);
+    Tcl_DStringFree(&cmdLine);
 }

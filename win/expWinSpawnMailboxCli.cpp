@@ -19,7 +19,7 @@
  * Copyright (c) 1997 Mitel Corporation
  *	work by Gordon Chaffee <chaffee@bmrc.berkeley.edu> for the WinNT port.
  *
- * Copyright (c) 2001 Telindustrie, LLC
+ * Copyright (c) 2001-2002 Telindustrie, LLC
  *	work by David Gravereaux <davygrvy@pobox.com> for full Stubs complience
  *	and any Win32 OS.
  *
@@ -35,7 +35,7 @@
 #include "expWinInt.h"
 
 
-ExpSpawnMailboxCli::ExpSpawnMailboxCli(const char *name)
+ExpSpawnMailboxClient::ExpSpawnMailboxClient(const char *name)
     : MasterToExpect(0L), MasterFromExpect(0L)
 {
     TCHAR boxName[24];
@@ -50,10 +50,10 @@ ExpSpawnMailboxCli::ExpSpawnMailboxCli(const char *name)
     if (err == NO_ERROR) {
 	/* Not allowed to be the creator. */
 	delete MasterToExpect;
-	EXP_LOG1(MSG_MB_CANTOPENCLIENT1, name);
+	//EXP_LOG1(MSG_MB_CANTOPENCLIENT1, name);
     } else if (err != ERROR_ALREADY_EXISTS) {
 	delete MasterToExpect;
-	EXP_LOG2(MSG_MB_CANTOPENCLIENT2, name, ExpSyslogGetSysMsg(err));
+	//EXP_LOG2(MSG_MB_CANTOPENCLIENT2, name, ExpSyslogGetSysMsg(err));
     }
 
     /* Connect to the in-coming. */
@@ -65,12 +65,12 @@ ExpSpawnMailboxCli::ExpSpawnMailboxCli(const char *name)
     if (err == NO_ERROR) {
 	/* Not allowed to be the creator. */
 	delete MasterToExpect;
-	EXP_LOG1(MSG_MB_CANTOPENCLIENT1, name);
+	//EXP_LOG1(MSG_MB_CANTOPENCLIENT1, name);
     } else if (err != ERROR_ALREADY_EXISTS) {
 	delete MasterToExpect;
-	EXP_LOG2(MSG_MB_CANTOPENCLIENT2, name, ExpSyslogGetSysMsg(err));
+	//EXP_LOG2(MSG_MB_CANTOPENCLIENT2, name, ExpSyslogGetSysMsg(err));
     }
 }
 
-void ExpSpawnMailboxCli::ExpWriteMaster() {};
-void ExpSpawnMailboxCli::ExpReadMaster() {};
+void ExpSpawnMailboxClient::ExpWriteMaster() {};
+void ExpSpawnMailboxClient::ExpReadMaster() {};

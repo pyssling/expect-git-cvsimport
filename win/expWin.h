@@ -11,6 +11,13 @@
  *
  */
 
+#undef TCL_STORAGE_CLASS
+#ifdef BUILD_expect
+#   define TCL_STORAGE_CLASS DLLEXPORT
+#else
+#   define TCL_STORAGE_CLASS DLLIMPORT
+#endif
+
 #define EXP_SLAVE_CREATE 'c'
 #define EXP_SLAVE_KEY    'k'
 #define EXP_SLAVE_MOUSE  'm'
@@ -24,13 +31,8 @@
 #define EXP_KILL_CTRL_C     0x2
 #define EXP_KILL_CTRL_BREAK 0x4
 
-/*
- * Errors and logging
- */
-#define FILEPOSINFO			__FILE__ "(" STRINGIFY(__LINE__) ")"
-#define EXP_LOG0(errCode)		ExpSyslog(errCode, FILEPOSINFO, 0)
-#define EXP_LOG1(errCode, arg1)		ExpSyslog(errCode, FILEPOSINFO, arg1, 0)
-#define EXP_LOG2(errCode, arg1, arg2)	ExpSyslog(errCode, FILEPOSINFO, arg1, arg2, 0)
+#define EXP_LOG(format, args) \
+    ExpSyslog("Expect SlaveDriver (%s: %d): " format, __FILE__, __LINE__, args)
 
 /*
  * The following defines identify the various types of applications that 
@@ -40,22 +42,22 @@
 #define EXP_APPL_NONE	0
 #define EXP_APPL_DOS	1
 #define EXP_APPL_WIN3X	2
-#define EXP_APPL_WIN32CUI	3
-#define EXP_APPL_WIN32GUI	4
+#define EXP_APPL_WIN32	3
 
+typedef struct {
+    Tcl_Channel channelPtr;
+    int toWrite;
+} ExpSpawnState;
 
-extern DWORD		ExpApplicationType (const char *originalName,
-			    char *fullPath);
-extern DWORD		ExpCreateProcess (int argc, char **argv,
+extern DWORD		ExpApplicationType(const char *originalName,
+			    char *fullPath, char *imageName);
+extern DWORD		ExpCreateProcess(int argc, char **argv,
 			    HANDLE inputHandle, HANDLE outputHandle,
 			    HANDLE errorHandle, int allocConsole,
 			    int hideConsole, int debug, int newProcessGroup,
 			    Tcl_Pid *pidPtr, PDWORD globalPidPtr);
-extern Tcl_Channel	ExpCreateSpawnChannel (Tcl_Interp *, Tcl_Channel chan);
-extern void		ExpSyslog TCL_VARARGS(DWORD,arg1);
-extern TCHAR*		ExpSyslogGetSysMsg (DWORD);
-extern Tcl_Pid		Exp_WaitPid (Tcl_Pid pid, int *statPtr, int options);
-extern void		Exp_KillProcess (Tcl_Pid pid);
-extern void		ExpInitWinProcessAPI (void);
-extern int		ExpDynloadTclStubs (void);
-
+EXTERN Tcl_Channel	ExpCreateSpawnChannel _ANSI_ARGS_((Tcl_Interp *,
+			    Tcl_Channel chan));
+extern void		ExpSyslog TCL_VARARGS(char *,fmt);
+extern Tcl_Pid		Exp_WaitPid(Tcl_Pid pid, int *statPtr, int options);
+extern void		Exp_KillProcess(Tcl_Pid pid);

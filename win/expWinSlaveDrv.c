@@ -49,14 +49,17 @@
  *
  *----------------------------------------------------------------------
  */
-#if !defined(BUILD_spawndrv) && !defined(STATIC_BUILD)
-#   error "build instruction error"
-#endif
 
-#include "expWinInt.h"
+/*
+ * Even though we won't have access to most of the commands, use the
+ * normal headers 
+ */
 
-#pragma comment (lib, "ws2_32.lib")
-
+#include <winsock2.h>
+#include "tcl.h"
+#include "tclPort.h"
+#include "expWin.h"
+#include "expWinSlave.h"
 
 #define STATE_WAIT_CMD   0	/* Waiting for the next command */
 #define STATE_CREATE     1	/* Doesn't happen currently */
@@ -186,18 +189,18 @@ static void		SetArgv(char *cmdLine, int *argcPtr, char ***argvPtr);
  *
  *----------------------------------------------------------------------
  */
-#if 0
+
 void
 main(argc, argv)
     int argc;
     char **argv;
 {
-    HANDLE hConsoleInW;	/* Console, writeable input handle */
+    HANDLE hConsoleInW;		/* Console, writeable input handle */
     HANDLE hConsoleOut;	/* Console, readable output handle */
-    HANDLE hMaster;	/* Pipe between master and us */
-    HANDLE hSlaveOut;	/* Pipe from slave's STDOUT to us */
-    HANDLE hSlaveOutW;	/* Pipe from slave's STDOUT to us */
-    HANDLE hProcess;	/* Current process handle */
+    HANDLE hMaster;		/* Pipe between master and us */
+    HANDLE hSlaveOut;		/* Pipe from slave's STDOUT to us */
+    HANDLE hSlaveOutW;		/* Pipe from slave's STDOUT to us */
+    HANDLE hProcess;		/* Current process handle */
     UCHAR cmdline[BUFSIZE];
     BOOL bRet;
     DWORD dwResult;
@@ -209,7 +212,6 @@ main(argc, argv)
     int useSocket = 0;
     int n;
     int sshd = 0;
-    int port = 0;
 
     struct sockaddr_in sin;
     WSADATA	SockData;
@@ -218,22 +220,9 @@ main(argc, argv)
     Sleep(22000);		/* XXX: For debugging purposes */
 #endif
 
-    /* Select the unicode or ascii winprocs. */
-    ExpInitWinProcessAPI();
-
-    /* We use a few APIs from Tcl, dynamically load it. */
-    /* This exits on error. */
-    ExpDynloadTclStubs();
-
     if (argc < 2) {
-	EXP_LOG0(MSG_IO_ARGSWRONG);
+	exit(1);
     }
-
-    /* This exits on error. */
-    ExpSpawnOpenClientMailbox(argv[1]);
-
-
-
     if (argc == 2) {
 	/* This is how we use it from sshd */
 	useSocket = 1;
@@ -256,40 +245,35 @@ main(argc, argv)
     if (!useSocket) {
 	hMaster = CreateFile(argv[1], GENERIC_READ | GENERIC_WRITE,
 			     0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
-	if (hMaster == INVALID_HANDLE_VALUE) {
-	    EXP_LOG2(MSG_NP_CANTOPEN, argv[1], ExpSyslogGetSysMsg(GetLastError()));
-	}
-	if (GetFileType(hMaster) != FILE_TYPE_PIPE) {
-	    EXP_LOG1(MSG_NP_BADTYPE, argv[1]);
+	if (hMaster == NULL) {
+	    EXP_LOG("Unexpected error 0x%x", GetLastError());
+	    Sleep(5000);
+	    ExitProcess(255);
 	}
     } else {
 	SOCKET fdmaster;
-	dwResult = WSAStartup(WINSOCK_VERSION, &SockData);
+	dwResult = WSAStartup(MAKEWORD(2, 0), &SockData);
 	if (dwResult != 0) {
-	    EXP_LOG2(MSG_WS_CANTSTART, "2.2", ExpSyslogGetSysMsg(dwResult));
+	    fprintf(stderr, "Unexpected error 0x%x\n", WSAGetLastError());
+	    EXP_LOG("Unexpected error 0x%x", WSAGetLastError());
+	    Sleep(5000);
+	    ExitProcess(255);
 	}
 
 	fdmaster = WSASocket(PF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
 			     WSA_FLAG_OVERLAPPED);
-	if (fdmaster == INVALID_SOCKET) {
-	    EXP_LOG1(MSG_WS_CANTCREATEMASTERSOCK, ExpSyslogGetSysMsg(WSAGetLastError()));
-	}
 
 	/*
 	 * Now attach this to a specific port.
 	 */
 	sin.sin_family = AF_INET;
-
-	/* get the port */
-	if (Tcl_GetInt(NULL, argv[1], &port) != TCL_OK || port < 0 || port > 65536) {
-	    EXP_LOG1(MSG_WS_PORTOUTOFRANGE, argv[1]);
-	}
-
-	sin.sin_port = (short) port;
-	sin.sin_addr.s_addr = INADDR_LOOPBACK;
-
+	sin.sin_port = htons((short) strtoul(argv[1], NULL, 10));
+	sin.sin_addr.s_addr = inet_addr("127.0.0.1");
 	if (connect(fdmaster, (struct sockaddr *) &sin, sizeof(sin)) == SOCKET_ERROR) {
-	    EXP_LOG2(MSG_WS_CANTCONNECTMASTERSOCK, argv[1], ExpSyslogGetSysMsg(WSAGetLastError()));
+	    fprintf(stderr, "Unexpected error 0x%x\n", WSAGetLastError());
+	    EXP_LOG("Unexpected error 0x%x", WSAGetLastError());
+	    Sleep(5000);
+	    ExitProcess(255);
 	}
 	hMaster = (HANDLE) fdmaster;
     }
@@ -322,8 +306,8 @@ main(argc, argv)
     InitializeWaitQueue();
 
     if (sshd) {
-	WSAOVERLAPPED over;
-	ZeroMemory(&over, sizeof(WSAOVERLAPPED));
+	OVERLAPPED over;
+	memset(&over, 0, sizeof(over));
 	over.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
 	bRet = ExpReadMaster(useSocket, hMaster, cmdline, BUFSIZE, &n, &over,
@@ -344,13 +328,15 @@ main(argc, argv)
     hConsoleInW = CreateFile("CONIN$", GENERIC_WRITE, FILE_SHARE_WRITE, NULL, 
 			     OPEN_EXISTING, 0, NULL);
     if (hConsoleInW == NULL) {
-	EXP_LOG2(MSG_DT_CANTGETCONSOLEHANDLE, "CONIN$", ExpSyslogGetSysMsg(GetLastError()));
+	EXP_LOG("Unexpected error 0x%x", GetLastError());
+	ExitProcess(255);
     }
     hConsoleOut = CreateFile("CONOUT$", GENERIC_READ|GENERIC_WRITE,
 			      FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, 
 			      OPEN_EXISTING, 0, NULL);
     if (hConsoleOut == NULL) {
-	EXP_LOG2(MSG_DT_CANTGETCONSOLEHANDLE, "CONOUT$", ExpSyslogGetSysMsg(GetLastError()));
+	EXP_LOG("Unexpected error 0x%x", GetLastError());
+	ExitProcess(255);
     }
 
     ExpConsoleInputMode = ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT|
@@ -375,6 +361,9 @@ main(argc, argv)
     }
 
     bRet = PipeRespondToMaster(useSocket, hMaster, debugInfo.result, debugInfo.globalPid);
+
+    DebugBreak();
+
     if (bRet == FALSE) {
 	ExitProcess(255);
     }
@@ -403,7 +392,7 @@ main(argc, argv)
 			useSocket, &debugInfo);
     }
 }
-#endif
+
 /*
  *----------------------------------------------------------------------
  *
@@ -421,7 +410,7 @@ static void
 ExpProcessInput(HANDLE hMaster, HANDLE hConsoleInW, HANDLE hConsoleOut,
 		int useSocket, ExpSlaveDebugArg *debugInfo)
 {
-    WSAOVERLAPPED over;
+    OVERLAPPED over;
     UCHAR buffer[BUFSIZE];
     DWORD dwState;
     DWORD dwHave;
@@ -435,7 +424,7 @@ ExpProcessInput(HANDLE hMaster, HANDLE hConsoleInW, HANDLE hConsoleOut,
     dwState = STATE_WAIT_CMD;
     dwNeeded = 1;
 
-    ZeroMemory(&over, sizeof(WSAOVERLAPPED));
+    memset(&over, 0, sizeof(over));
     over.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     while (1) {
 	bRet = ExpReadMaster(useSocket, hMaster, &buffer[dwHave],
@@ -451,8 +440,8 @@ ExpProcessInput(HANDLE hMaster, HANDLE hConsoleInW, HANDLE hConsoleOut,
 		 */
 		if( WaitForSingleObject(hShutdown, 0) == WAIT_OBJECT_0 )
 		{
-		    fd_set monitor;
-		    int	sts;
+		    fd_set		   monitor;
+		    int			   sts;
 		    /*
 		     * This means that all of the other threads have shut down cleanly.
 		     */
@@ -475,14 +464,15 @@ ExpProcessInput(HANDLE hMaster, HANDLE hConsoleInW, HANDLE hConsoleOut,
 		}
 		else
 		{
-		    EXP_LOG1(MSG_IO_BADSHUTDOWN, ExpSyslogGetSysMsg(dwResult));
+		    EXP_LOG("Unclean shutdown 0x%x", dwResult);
 		}
 	    }
 	    ExpKillProcessList();
 	    ExitProcess(0);
 	} else if (bRet == FALSE) {
+	    EXP_LOG("Unexpected error 0x%x", dwResult);
 	    ExpKillProcessList();
-	    EXP_LOG1(MSG_IO_UNEXPECTED, ExpSyslogGetSysMsg(dwResult));
+	    ExitProcess(255);
 	}
 
 	dwHave += driverInCnt;
@@ -536,7 +526,7 @@ ExpProcessInput(HANDLE hMaster, HANDLE hConsoleInW, HANDLE hConsoleOut,
 				   hConsoleInW, hConsoleOut,
 				   buffer, dwNeeded, &over) == FALSE)
 	    {
-		EXP_LOG1(MSG_MS_SLAVENOWRITABLE, ExpSyslogGetSysMsg(GetLastError()));
+		EXP_LOG("Unable to write to slave: 0x%x", GetLastError());
 	    }
 	    dwTotalNeeded -= dwNeeded;
 	    if (dwTotalNeeded) {
@@ -553,7 +543,7 @@ ExpProcessInput(HANDLE hMaster, HANDLE hConsoleInW, HANDLE hConsoleOut,
 	    break;
 	default:
 	    /* If we ever get here, there is a problem */
-	    EXP_LOG0(MSG_MS_BADSTATE);
+	    EXP_LOG("Unexpected state\n", 0);
 	    break;
 	}
     }
@@ -578,9 +568,9 @@ SshdProcessInput(HANDLE hMaster, HANDLE hConsoleInW, HANDLE hConsoleOut)
     UCHAR buffer[BUFSIZE];
     BOOL b;
     DWORD dwError;
-    WSAOVERLAPPED over;
+    OVERLAPPED over;
 
-    ZeroMemory(&over, sizeof(WSAOVERLAPPED));
+    memset(&over, 0, sizeof(over));
     over.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
     ExpNewConsoleSequences(TRUE, hMaster, &over);
@@ -600,9 +590,10 @@ SshdProcessInput(HANDLE hMaster, HANDLE hConsoleInW, HANDLE hConsoleOut)
 	if (WriteBufferToSlave(TRUE, TRUE, FALSE, hMaster, hConsoleInW,
 			       hConsoleOut, buffer, n, &over) == FALSE)
 	{
-	    EXP_LOG1(MSG_MS_SLAVENOWRITABLE, ExpSyslogGetSysMsg(GetLastError()));
+	    EXP_LOG("Unable to write to slave: 0x%x", GetLastError());
 	}
     }
+
 }
 
 
@@ -762,6 +753,8 @@ ExpReadMaster(int useSocket, HANDLE hFile, void *buf, DWORD n,
     DWORD flags;
 
     *pError = 0;
+    //ResetEvent(over->hEvent);
+
     if (! useSocket) {
 	bRet = ReadFile(hFile, buf, n, pCount, over);
 	if (!bRet) {
@@ -783,17 +776,17 @@ ExpReadMaster(int useSocket, HANDLE hFile, void *buf, DWORD n,
 	    hnd[0] = hShutdown;
 	    hnd[1] = over->hEvent;
 	    bRet = WaitForMultipleObjects(2, hnd, FALSE, INFINITE);
-	    if( bRet == WAIT_OBJECT_0 )
+	    if( bRet != WAIT_OBJECT_0 + 1 )
 	    {
 		/*
-		 * We have been instructed to shut down.
+		 * We have been instructed to shut down or some other error.
 		 */
 		*pCount = 0;
 		bRet = TRUE;
 	    }
 	    else
 	    {
-		bRet = GetOverlappedResult(hFile, over, pCount, TRUE);
+		bRet = GetOverlappedResult(hFile, over, pCount, FALSE);
 		if (bRet == FALSE) {
 		    dwResult = GetLastError();
 		}
@@ -1317,3 +1310,116 @@ WaitQueueThread(LPVOID *arg)
 
     return 0;
 }
+
+/*
+ *-------------------------------------------------------------------------
+ *
+ * setargv --
+ *
+ *	Parse the Windows command line string into argc/argv.  Done here
+ *	because we don't trust the builtin argument parser in crt0.  
+ *	Windows applications are responsible for breaking their command
+ *	line into arguments.
+ *
+ *	2N backslashes + quote -> N backslashes + begin quoted string
+ *	2N + 1 backslashes + quote -> literal
+ *	N backslashes + non-quote -> literal
+ *	quote + quote in a quoted string -> single quote
+ *	quote + quote not in quoted string -> empty string
+ *	quote -> begin quoted string
+ *
+ * Results:
+ *	Fills argcPtr with the number of arguments and argvPtr with the
+ *	array of arguments.
+ *
+ * Side effects:
+ *	Memory allocated.
+ *
+ *--------------------------------------------------------------------------
+ */
+
+static void
+SetArgv(char *cmdLine, int *argcPtr, char ***argvPtr)
+{
+    char *p, *arg, *argSpace;
+    char **argv;
+    int argc, size, inquote, copy, slashes;
+    
+    /*
+     * Precompute an overly pessimistic guess at the number of arguments
+     * in the command line by counting non-space spans.
+     */
+
+    size = 2;
+    for (p = cmdLine; *p != '\0'; p++) {
+	if (isspace(*p)) {
+	    size++;
+	    while (isspace(*p)) {
+		p++;
+	    }
+	    if (*p == '\0') {
+		break;
+	    }
+	}
+    }
+    argSpace = (char *) ckalloc((unsigned) (size * sizeof(char *) 
+	    + strlen(cmdLine) + 1));
+    argv = (char **) argSpace;
+    argSpace += size * sizeof(char *);
+    size--;
+
+    p = cmdLine;
+    for (argc = 0; argc < size; argc++) {
+	argv[argc] = arg = argSpace;
+	while (isspace(*p)) {
+	    p++;
+	}
+	if (*p == '\0') {
+	    break;
+	}
+
+	inquote = 0;
+	slashes = 0;
+	while (1) {
+	    copy = 1;
+	    while (*p == '\\') {
+		slashes++;
+		p++;
+	    }
+	    if (*p == '"') {
+		if ((slashes & 1) == 0) {
+		    copy = 0;
+		    if ((inquote) && (p[1] == '"')) {
+			p++;
+			copy = 1;
+		    } else {
+			inquote = !inquote;
+		    }
+                }
+                slashes >>= 1;
+            }
+
+            while (slashes) {
+		*arg = '\\';
+		arg++;
+		slashes--;
+	    }
+
+	    if ((*p == '\0') || (!inquote && isspace(*p))) {
+		break;
+	    }
+	    if (copy != 0) {
+		*arg = *p;
+		arg++;
+	    }
+	    p++;
+        }
+	*arg = '\0';
+	argSpace = arg + 1;
+    }
+    argv[argc] = NULL;
+
+    *argcPtr = argc;
+    *argvPtr = argv;
+}
+

@@ -1,42 +1,30 @@
-/* ----------------------------------------------------------------------------
+/*
  * expWinCommand.c --
  *
- *	Implements Windows specific parts required by expCommand.c.
+ *	Implements Windows NT specific parts required by expCommand.c.
  *
- * ----------------------------------------------------------------------------
+ * Copyright (c) 1997 by Mitel Corporation
  *
- * Written by: Don Libes, libes@cme.nist.gov, NIST, 12/3/90
- * 
- * Design and implementation of this program was paid for by U.S. tax
- * dollars.  Therefore it is public domain.  However, the author and NIST
- * would appreciate credit if this program or parts of it are used.
- * 
- * Copyright (c) 1997 Mitel Corporation
- *	work by Gordon Chaffee <chaffee@bmrc.berkeley.edu> for the WinNT port.
+ * See the file "license.terms" for information on usage and redistribution
+ * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
  *
- * Copyright (c) 2001 Telindustrie, LLC
- *	work by David Gravereaux <davygrvy@pobox.com> for any Win32 OS.
- *
- * ----------------------------------------------------------------------------
- * URLs:    http://expect.nist.gov/
- *	    http://expect.sf.net/
- *	    http://bmrc.berkeley.edu/people/chaffee/expectnt.html
- * ----------------------------------------------------------------------------
- * RCS: @(#) $Id$
- * ----------------------------------------------------------------------------
  */
 
-#include "expInt.h"
+#define BUILD_expect
+#include "exp_port.h"
+#include "tclInt.h"
+#include "tclPort.h"
+#include "tclWinInt.h"
 #include "expWin.h"
+#include "expect_tcl.h"
+#include "exp_command.h"
+#include "exp_rename.h"
+#include "exp_log.h"
+#include "exp_event.h"
+#include "exp_prog.h"
+#include "exp_tty.h"
 
-//#include "tclPort.h"
-//#include "expect_tcl.h"
-//#include "exp_command.h"
-//#include "exp_rename.h"
-//#include "exp_log.h"
-//#include "exp_event.h"
-//#include "exp_prog.h"
-//#include "exp_tty.h"
+#include <winbase.h>
 
 #ifdef TCL_DEBUGGER
 #include "Dbg.h"
@@ -51,6 +39,67 @@
 static void ExpSockAcceptProc _ANSI_ARGS_((ClientData callbackData,
         Tcl_Channel chan, char *address, int port));
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * exp_f_new_platform --
+ *
+ *	Platform specific initialization of exp_f structure
+ *
+ * Results:
+ *	TRUE if successful, FALSE if unsuccessful.
+ *
+ * Side Effects:
+ *	None
+ *
+ *----------------------------------------------------------------------
+ */
+
+int
+exp_f_new_platform(f)
+    struct exp_f *f;
+{
+    if (EXP_NOPID != f->pid) {
+	f->tclPid = (Tcl_Pid)
+	    OpenProcess(PROCESS_ALL_ACCESS, FALSE, f->pid);
+	TclWinAddProcess((HANDLE) f->tclPid, f->pid);
+    } else {
+	f->tclPid = (Tcl_Pid) INVALID_HANDLE_VALUE;
+    }
+
+    /* WIN32 only fields */
+    f->over.hEvent = NULL;
+    return TRUE;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * exp_f_free_platform --
+ *
+ *	Frees any platform specific pieces of the exp_f structure.
+ *
+ * Results:
+ *	None
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+exp_f_free_platform(f)
+    struct exp_f *f;
+{
+    if (f->tclPid != (Tcl_Pid) INVALID_HANDLE_VALUE) {
+	__try {
+	    CloseHandle((HANDLE) f->tclPid);
+	}
+	__except (1) {};
+    }
+    if (f->over.hEvent) {
+	CloseHandle(f->over.hEvent);
+	f->over.hEvent = NULL;
+    }
+}
 
 void
 exp_close_on_exec(fd)
@@ -100,7 +149,7 @@ exp_getpidproc()
  *	than once console.  There is no way to call DuplicateHandle()
  *	on a console handle so a single executable could control
  *	multiple consoles.  This leaves one option: execute slave
- *	controllers who allocate their own consoles and then control
+ *	controllers who allocate their own consoles and then control.
  *	the actual slave.  The normal expect process communicates
  *	with these slave drivers over pipes.  There is still one
  *	remaining problem: consoles pop up on the screen.  When
@@ -123,7 +172,7 @@ exp_getpidproc()
 int
 Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 {
-    HANDLE hSlaveDrv = NULL;	/* Handle to communicate with slave driver */
+    HANDLE hSlaveDrv = INVALID_HANDLE_VALUE;	/* Handle to communicate with slave driver */
     Tcl_Pid slaveDrvPid;	/* Process id of the slave */
     BOOL bRet;
     DWORD dwRet;
@@ -146,7 +195,7 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
     Tcl_Channel spawnChan = NULL;
     TclFile masterRFile;
     TclFile masterWFile;
-    //char *openarg = NULL;
+    char *openarg = NULL;
     int leaveopen = 0;
     char *val;
     int hide;
@@ -184,8 +233,17 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 	    exp_error(interp, "%s -pty is unsupported on NT", argv0);
 	    return TCL_ERROR;
 	} else if (streq(*argv,"-open")) {
-	    exp_error(interp,"%s -open is unsupported on NT", argv0);
-	    return TCL_ERROR;
+	    /*
+	     * This allows us to treat an open file id as an
+	     * expect process id.  We should be eventually be able
+	     * to support this under NT.
+	     */
+	    if (argc < 2) {
+		exp_error(interp,"usage: %s -open file-identifier", argv0);
+		return TCL_ERROR;
+	    }
+	    openarg = argv[1];
+	    argc--; argv++;
 	} else if (streq(*argv,"-leaveopen")) {
 	    /*
 	     * This leaves the file id open when the process id
@@ -219,11 +277,7 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 	    exp_error(interp,"usage: -[leave]open [fileXX]");
 	    return TCL_ERROR;
 	}
-	if (echo) {
-	    expStdoutLogU(argv0,0);
-	    expStdoutLogU(" [open ...]\r\n",0);
-	}
-
+	if (echo) exp_log(0,"%s [open ...]\r\n",argv0);
 
 	return ExpSpawnOpen(interp, openarg, leaveopen);
     }
@@ -271,7 +325,7 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 
     /*
      * The whole point of this is that named pipes don't exist on Win95,
-     * so we have the sockets as a backup communications transport.  The user
+     * so we have the sockets as a backup communications protocol.  The user
      * can specify that they get sockets at all times if they want.
      */
     if (useSocket == 0) {
@@ -287,7 +341,7 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
      * If we cannot create the named pipe (or if we have been told to use
      * sockets for communications at this level), try opening a socket.
      */
-    if (hSlaveDrv == NULL) {
+    if (hSlaveDrv == INVALID_HANDLE_VALUE) {
 	channel2 = NULL;
 	for (i = 0; i < 50 && channel2 == NULL; i++) {
 	    channel2 = Tcl_OpenTcpServer(interp, 
@@ -301,9 +355,9 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 	useSocket = 1;
     }
 
-    if (channel2 == NULL && hSlaveDrv == NULL ) {
-	exp_debuglog("CreateNamedPipe failed: error=0x%08x\r\n", GetLastError());
-	exp_debuglog("socket failed: error=0x%08x\r\n", GetLastError());
+    if (channel2 == NULL && hSlaveDrv == INVALID_HANDLE_VALUE ) {
+	debuglog("CreateNamedPipe failed: error=0x%08x\r\n", GetLastError());
+	debuglog("socket failed: error=0x%08x\r\n", GetLastError());
 	TclWinConvertError(GetLastError());
 	exp_error(interp, "unable to create either named pipe or socket: %s",
 		  Tcl_PosixError(interp));
@@ -312,7 +366,7 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 
     hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (hEvent == NULL) {
-	exp_debuglog("CreateEvent failed: error=0x%08x\r\n", GetLastError());
+	debuglog("CreateEvent failed: error=0x%08x\r\n", GetLastError());
 	TclWinConvertError(GetLastError());
 	exp_error(interp, "unable to create event: %s",
 		  Tcl_PosixError(interp));
@@ -331,6 +385,7 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 
     nargv = (char **) ckalloc(sizeof(char *) * (argc+4));
     nargv[0] = execPath;
+
     if (!useSocket) {
 	nargv[1] = pipeName;
     } else {
@@ -347,26 +402,32 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
     }
     argc = j;
 
-#if 0 /* For debugging purposes only */
-    if (1) {
+    /*
+     * When the Expect extension is running in a debugger,
+     * print the commandline to the output window.
+     */
+    if (IsDebuggerPresent()) {
 	int i;
-	for (i = -1; i < argc; i++) {
-	    printf("%s ", nargv[i]);
+	char buf[100];
+
+	OutputDebugString("spawndrv.exe commandline: ");
+	for (i = 0; i < argc; i++) {
+	    wsprintf(buf, "%s ", nargv[i]);
+	    OutputDebugString(buf);
 	}
-	printf("\n");
+	OutputDebugString("\n");
+	slaveDrvPid = 0;
+	globalPid = 1;
     }
-    slaveDrvPid = 0;
-    globalPid = 1;
-#else
 
     hide = !debug;
     dwRet = ExpCreateProcess(argc, nargv, NULL, NULL, NULL,
 			     TRUE, hide, FALSE, FALSE,
 			     &slaveDrvPid, &globalPid);
     if (dwRet != 0) {
-	TclWinConvertError(dwRet);
-	exp_error(interp, "couldn't execute \"%s\": %s",
-		  argv[0],Tcl_PosixError(interp));
+        TclWinConvertError(dwRet);
+        exp_error(interp, "couldn't execute \"%s\": %s",
+	      argv[0],Tcl_PosixError(interp));
 	goto end;
     }
 
@@ -374,7 +435,7 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
      * Until we use the process handle for something, close it
      */
     CloseHandle((HANDLE) slaveDrvPid);
-#endif
+
     /*
      * Wait for connection with the slave driver
      */
@@ -387,14 +448,16 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 	    if (dwRet == ERROR_PIPE_CONNECTED) {
 		;
 	    } else if (dwRet == ERROR_IO_PENDING) {
-		dwRet = WaitForSingleObject(hEvent, 120000 /* XXX 30000*/);
+		dwRet = WaitForSingleObject(hEvent, 10000 /* XXX 30000*/);
 		if (dwRet != WAIT_OBJECT_0) {
+		    TclWinConvertError(dwRet);
 		    exp_error(interp, "%s did not connect to server pipe: %s",
 			      execPath, Tcl_PosixError(interp));
 		    goto end;
 		}
 		bRet = GetOverlappedResult(hSlaveDrv, &over, &count, FALSE);
 		if (bRet == FALSE) {
+		    TclWinConvertError(GetLastError());
 		    exp_error(interp, "%s did not connect to server pipe: %s",
 			      execPath, Tcl_PosixError(interp));
 		    goto end;
@@ -421,7 +484,7 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
     /*
      * wait for slave driver to initialize before allowing user to send to it
      */
-    exp_debuglog("parent: waiting for sync bytes\r\n");
+    debuglog("parent: waiting for sync bytes\r\n");
 
     if (!useSocket) {
 	ResetEvent(hEvent);
@@ -429,14 +492,16 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
 	if (bRet == FALSE) {
 	    dwRet = GetLastError();
 	    if (dwRet == ERROR_IO_PENDING) {
-		dwRet = WaitForSingleObject(hEvent, 30000);
+		dwRet = WaitForSingleObject(hEvent, 50000);  /* 50 seconds */
 		if (dwRet != WAIT_OBJECT_0) {
+		    TclWinConvertError(dwRet);
 		    exp_error(interp, "%s did not synchronize with master: %s",
 			      execPath, Tcl_PosixError(interp));
 		    goto end;
 		}
 		bRet = GetOverlappedResult(hSlaveDrv, &over, &count, FALSE);
 		if (bRet == FALSE) {
+		    TclWinConvertError(GetLastError());
 		    exp_error(interp, "%s did not synchronize with master: %s",
 			      execPath, Tcl_PosixError(interp));
 		    goto end;
@@ -470,9 +535,20 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
     globalPid = buf[4] | (buf[5] << 8) | (buf[6] << 16) | (buf[7] << 24);
 
     if (!useSocket) {
+	HANDLE dupe;
+
 	masterRFile = TclWinMakeFile(hSlaveDrv);
-	masterWFile = TclWinMakeFile(hSlaveDrv);
-	
+
+	/*
+	 *  We need to make a duplicate, because the handles are closed
+	 *  seperately by the core.
+	 */
+
+	DuplicateHandle(GetCurrentProcess(), hSlaveDrv,
+		GetCurrentProcess(), &dupe, 0, FALSE,
+		DUPLICATE_SAME_ACCESS);
+	masterWFile = TclWinMakeFile(dupe);
+
 	channel = TclpCreateCommandChannel(masterRFile, masterWFile, NULL, 0, NULL);
     }
 
@@ -494,12 +570,12 @@ Exp_SpawnCmd(ClientData clientData,Tcl_Interp *interp,int argc,char **argv)
     debuglog("parent: now unsynchronized from child\r\n");
 
     /* tell user id of new process */
-    Tcl_SetVar(interp, SPAWN_ID_VARNAME, Tcl_GetChannelName(spawnChan), 0);
+    Tcl_SetVar(interp, EXP_SPAWN_ID_VARNAME, Tcl_GetChannelName(spawnChan), 0);
 
     Tcl_RegisterChannel(interp, spawnChan);
 
     sprintf(interp->result,"%d",(int) globalPid);
-    exp_debuglog("spawn: returns {%s}\r\n",interp->result);
+    debuglog("spawn: returns {%s}\r\n",interp->result);
     ckfree((char *) nargv);
     return(TCL_OK);
 
@@ -641,3 +717,5 @@ ExpSockAcceptProc(callbackData, chan, address, port)
     *ptr = chan;
     return;
 }
+
+

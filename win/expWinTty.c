@@ -2,7 +2,7 @@
  * expWinTty.c --
  *
  *	Implements some tty related functions.  Handles interaction with
- *	the console.  This file uses only ANSI function headers.
+ *	the console
  *
  * Copyright (c) 1997 by Mitel Corporation
  *
@@ -13,6 +13,9 @@
 
 #include "tcl.h"
 #include "tclPort.h"
+
+#define BUILD_expect
+
 #include "expect_tcl.h"
 #include "exp_command.h"
 #include "exp_tty.h"
@@ -69,7 +72,8 @@ exp_isecho()
  */
 
 void
-exp_tty_raw(int set)
+exp_tty_raw(set)
+    int set;
 {
     if (! consoleInitialized) {
 	return;
@@ -100,7 +104,8 @@ exp_tty_raw(int set)
  */
 
 void
-exp_tty_echo(int set)
+exp_tty_echo(set)
+    int set;
 {
     if (! consoleInitialized) {
 	return;
@@ -130,7 +135,9 @@ exp_tty_echo(int set)
  */
 
 char *
-exp_cook(char *s, int *len)
+exp_cook(s,len)
+    char *s;
+    int *len;	/* current and new length of s */
 {
     static unsigned int destlen = 0;
     static char *dest = 0;
@@ -316,8 +323,8 @@ Exp_SystemCmd(clientData, interp, argc, argv)
 
 static struct exp_cmd_data
 cmd_data[]  = {
-{"stty",	Exp_SttyCmd,	0,	0},
-{"system",	Exp_SystemCmd,	0,	0},
+{"stty",	0, Exp_SttyCmd,	0,	0},
+{"system",	0, Exp_SystemCmd,	0,	0},
 {0}};
 
 /*

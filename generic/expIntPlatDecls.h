@@ -39,7 +39,8 @@
 #ifdef __WIN32__
 /* 0 */
 TCL_EXTERN(DWORD)	ExpWinApplicationType _ANSI_ARGS_((
-				const char * originalName, char * fullPath));
+				const char * originalName, 
+				Tcl_DString * fullPath));
 /* 1 */
 TCL_EXTERN(DWORD)	ExpWinCreateProcess _ANSI_ARGS_((int argc, 
 				char ** argv, HANDLE inputHandle, 
@@ -48,9 +49,8 @@ TCL_EXTERN(DWORD)	ExpWinCreateProcess _ANSI_ARGS_((int argc,
 				int newProcessGroup, Tcl_Pid * pidPtr, 
 				PDWORD globalPidPtr));
 /* 2 */
-TCL_EXTERN(void)	ExpWinSyslog _ANSI_ARGS_(TCL_VARARGS(DWORD,errId));
-/* 3 */
-TCL_EXTERN(char *)	ExpSyslogGetSysMsg _ANSI_ARGS_((DWORD errId));
+TCL_EXTERN(void)	ExpSyslog _ANSI_ARGS_(TCL_VARARGS(char *,fmt));
+/* Slot 3 is reserved */
 /* 4 */
 TCL_EXTERN(Tcl_Pid)	Exp_WaitPid _ANSI_ARGS_((Tcl_Pid pid, int * statPtr, 
 				int options));
@@ -58,6 +58,10 @@ TCL_EXTERN(Tcl_Pid)	Exp_WaitPid _ANSI_ARGS_((Tcl_Pid pid, int * statPtr,
 TCL_EXTERN(void)	Exp_KillProcess _ANSI_ARGS_((Tcl_Pid pid));
 /* 6 */
 TCL_EXTERN(void)	ExpWinInit _ANSI_ARGS_((void));
+/* 7 */
+TCL_EXTERN(void)	BuildCommandLine _ANSI_ARGS_((
+				CONST char * executable, int argc, 
+				char ** argv, Tcl_DString * linePtr));
 #endif /* __WIN32__ */
 
 typedef struct ExpIntPlatStubs {
@@ -65,13 +69,14 @@ typedef struct ExpIntPlatStubs {
     struct ExpIntPlatStubHooks *hooks;
 
 #ifdef __WIN32__
-    DWORD (*expWinApplicationType) _ANSI_ARGS_((const char * originalName, char * fullPath)); /* 0 */
+    DWORD (*expWinApplicationType) _ANSI_ARGS_((const char * originalName, Tcl_DString * fullPath)); /* 0 */
     DWORD (*expWinCreateProcess) _ANSI_ARGS_((int argc, char ** argv, HANDLE inputHandle, HANDLE outputHandle, HANDLE errorHandle, int allocConsole, int hideConsole, int debug, int newProcessGroup, Tcl_Pid * pidPtr, PDWORD globalPidPtr)); /* 1 */
-    void (*expWinSyslog) _ANSI_ARGS_(TCL_VARARGS(DWORD,errId)); /* 2 */
-    TCHAR* (*expSyslogGetSysMsg) _ANSI_ARGS_((DWORD errId)); /* 3 */
+    void (*expSyslog) _ANSI_ARGS_(TCL_VARARGS(char *,fmt)); /* 2 */
+    void *reserved3;
     Tcl_Pid (*exp_WaitPid) _ANSI_ARGS_((Tcl_Pid pid, int * statPtr, int options)); /* 4 */
     void (*exp_KillProcess) _ANSI_ARGS_((Tcl_Pid pid)); /* 5 */
     void (*expWinInit) _ANSI_ARGS_((void)); /* 6 */
+    void (*buildCommandLine) _ANSI_ARGS_((CONST char * executable, int argc, char ** argv, Tcl_DString * linePtr)); /* 7 */
 #endif /* __WIN32__ */
 } ExpIntPlatStubs;
 
@@ -98,14 +103,11 @@ extern ExpIntPlatStubs *expIntPlatStubsPtr;
 #define ExpWinCreateProcess \
 	(expIntPlatStubsPtr->expWinCreateProcess) /* 1 */
 #endif
-#ifndef ExpWinSyslog
-#define ExpWinSyslog \
-	(expIntPlatStubsPtr->expWinSyslog) /* 2 */
+#ifndef ExpSyslog
+#define ExpSyslog \
+	(expIntPlatStubsPtr->expSyslog) /* 2 */
 #endif
-#ifndef ExpSyslogGetSysMsg
-#define ExpSyslogGetSysMsg \
-	(expIntPlatStubsPtr->expSyslogGetSysMsg) /* 3 */
-#endif
+/* Slot 3 is reserved */
 #ifndef Exp_WaitPid
 #define Exp_WaitPid \
 	(expIntPlatStubsPtr->exp_WaitPid) /* 4 */
@@ -117,6 +119,10 @@ extern ExpIntPlatStubs *expIntPlatStubsPtr;
 #ifndef ExpWinInit
 #define ExpWinInit \
 	(expIntPlatStubsPtr->expWinInit) /* 6 */
+#endif
+#ifndef BuildCommandLine
+#define BuildCommandLine \
+	(expIntPlatStubsPtr->buildCommandLine) /* 7 */
 #endif
 #endif /* __WIN32__ */
 

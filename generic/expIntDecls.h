@@ -42,11 +42,53 @@
  * Exported function declarations:
  */
 
+/* Slot 0 is reserved */
+/* 1 */
+TCL_EXTERN(int)		Exp_StringMatch _ANSI_ARGS_((CONST char * string, 
+				CONST char * pattern, int * offset));
+/* 2 */
+TCL_EXTERN(int)		Exp_StringMatch2 _ANSI_ARGS_((CONST char * string, 
+				CONST char * pattern));
+/* Slot 3 is reserved */
+/* 4 */
+TCL_EXTERN(struct exp_i *) exp_new_i_complex _ANSI_ARGS_((
+				Tcl_Interp * interp, char * arg, 
+				int duration, Tcl_VarTraceProc * updateproc, 
+				char * msg));
+/* 5 */
+TCL_EXTERN(struct exp_i *) exp_new_i_simple _ANSI_ARGS_((struct exp_f * fd, 
+				int duration));
+/* 6 */
+TCL_EXTERN(struct exp_fs_list *) exp_new_fs _ANSI_ARGS_((struct exp_f * f));
+/* 7 */
+TCL_EXTERN(void)	exp_free_i _ANSI_ARGS_((Tcl_Interp * interp, 
+				struct exp_i * i, 
+				Tcl_VarTraceProc * updateproc));
+/* 8 */
+TCL_EXTERN(void)	exp_free_fs _ANSI_ARGS_((
+				struct exp_fs_list * fs_first));
+/* 9 */
+TCL_EXTERN(void)	exp_free_fs_single _ANSI_ARGS_((
+				struct exp_fs_list * fs));
+/* 10 */
+TCL_EXTERN(void)	exp_i_update _ANSI_ARGS_((Tcl_Interp * interp, 
+				struct exp_i * i));
 
 typedef struct ExpIntStubs {
     int magic;
     struct ExpIntStubHooks *hooks;
 
+    void *reserved0;
+    int (*exp_StringMatch) _ANSI_ARGS_((CONST char * string, CONST char * pattern, int * offset)); /* 1 */
+    int (*exp_StringMatch2) _ANSI_ARGS_((CONST char * string, CONST char * pattern)); /* 2 */
+    void *reserved3;
+    struct exp_i * (*exp_new_i_complex) _ANSI_ARGS_((Tcl_Interp * interp, char * arg, int duration, Tcl_VarTraceProc * updateproc, char * msg)); /* 4 */
+    struct exp_i * (*exp_new_i_simple) _ANSI_ARGS_((struct exp_f * fd, int duration)); /* 5 */
+    struct exp_fs_list * (*exp_new_fs) _ANSI_ARGS_((struct exp_f * f)); /* 6 */
+    void (*exp_free_i) _ANSI_ARGS_((Tcl_Interp * interp, struct exp_i * i, Tcl_VarTraceProc * updateproc)); /* 7 */
+    void (*exp_free_fs) _ANSI_ARGS_((struct exp_fs_list * fs_first)); /* 8 */
+    void (*exp_free_fs_single) _ANSI_ARGS_((struct exp_fs_list * fs)); /* 9 */
+    void (*exp_i_update) _ANSI_ARGS_((Tcl_Interp * interp, struct exp_i * i)); /* 10 */
 } ExpIntStubs;
 
 #ifdef __cplusplus
@@ -63,6 +105,44 @@ extern ExpIntStubs *expIntStubsPtr;
  * Inline function declarations:
  */
 
+/* Slot 0 is reserved */
+#ifndef Exp_StringMatch
+#define Exp_StringMatch \
+	(expIntStubsPtr->exp_StringMatch) /* 1 */
+#endif
+#ifndef Exp_StringMatch2
+#define Exp_StringMatch2 \
+	(expIntStubsPtr->exp_StringMatch2) /* 2 */
+#endif
+/* Slot 3 is reserved */
+#ifndef exp_new_i_complex
+#define exp_new_i_complex \
+	(expIntStubsPtr->exp_new_i_complex) /* 4 */
+#endif
+#ifndef exp_new_i_simple
+#define exp_new_i_simple \
+	(expIntStubsPtr->exp_new_i_simple) /* 5 */
+#endif
+#ifndef exp_new_fs
+#define exp_new_fs \
+	(expIntStubsPtr->exp_new_fs) /* 6 */
+#endif
+#ifndef exp_free_i
+#define exp_free_i \
+	(expIntStubsPtr->exp_free_i) /* 7 */
+#endif
+#ifndef exp_free_fs
+#define exp_free_fs \
+	(expIntStubsPtr->exp_free_fs) /* 8 */
+#endif
+#ifndef exp_free_fs_single
+#define exp_free_fs_single \
+	(expIntStubsPtr->exp_free_fs_single) /* 9 */
+#endif
+#ifndef exp_i_update
+#define exp_i_update \
+	(expIntStubsPtr->exp_i_update) /* 10 */
+#endif
 
 #endif /* defined(USE_EXP_STUBS) && !defined(USE_EXP_STUB_PROCS) */
 

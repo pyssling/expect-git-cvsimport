@@ -14,7 +14,7 @@
  * Copyright (c) 1997 Mitel Corporation
  *	work by Gordon Chaffee <chaffee@bmrc.berkeley.edu> for the WinNT port.
  *
- * Copyright (c) 2001 Telindustrie, LLC
+ * Copyright (c) 2002 Telindustrie, LLC
  *	work by David Gravereaux <davygrvy@pobox.com> for any Win32 OS.
  *
  * ----------------------------------------------------------------------------
@@ -76,6 +76,22 @@
 #ifndef RC_INVOKED
 
 
+/* according to Karl Vogel, time.h is insufficient on Pyramid */
+/* the following is recommended by autoconf */
+
+#ifdef TIME_WITH_SYS_TIME
+# include <sys/time.h>
+# include <time.h>
+#else
+# ifdef HAVE_SYS_TIME_H
+#  include <sys/time.h>
+# else
+#  include <time.h>
+# endif
+#endif
+
+
+
 #undef TCL_STORAGE_CLASS
 #if defined(BUILD_spawndriver)
 #   define TCL_STORAGE_CLASS
@@ -96,7 +112,7 @@
 #ifndef TCL_EXTERN
 #   undef DLLIMPORT
 #   undef DLLEXPORT
-#   if defined(__WIN32__) && (defined(_MSC_VER) || (defined(__GNUC__) && defined(__declspec)))
+#   if defined(__WIN32__) && (defined(_MSC_VER) || (defined(__GNUC__) && defined(__declspec))) || (defined(MAC_TCL) && FUNCTION_DECLSPEC)
 #	define DLLIMPORT __declspec(dllimport)
 #	define DLLEXPORT __declspec(dllexport)
 #   elif defined(__BORLANDC__)
@@ -170,22 +186,21 @@
 					/* inter_return into */
 					/* TCL_RETURN*/
 
-/* from expect_tcl.h */
-TCL_EXTERN(void)	exp_parse_argv _ANSI_ARGS_((Tcl_Interp *,int argc,char **argv));
-TCL_EXTERN(int)		exp_interpreter _ANSI_ARGS_((Tcl_Interp *,Tcl_Obj *));
-TCL_EXTERN(int)		exp_interpret_cmdfile _ANSI_ARGS_((Tcl_Interp *,Tcl_Channel));
-TCL_EXTERN(int)		exp_interpret_cmdfilename _ANSI_ARGS_((Tcl_Interp *,char *));
-TCL_EXTERN(void)	exp_interpret_rcfiles _ANSI_ARGS_((Tcl_Interp *,int my_rc,int sys_rc));
+#define EXP_TIME_INFINITY	-1
+#define EXP_SPAWN_ID_BAD	-1
 
-TCL_EXTERN(char *)	exp_cook _ANSI_ARGS_((char *s,int *len));
-TCL_EXTERN(void)	expCloseOnExec _ANSI_ARGS_((int));
+/* from expect_tcl.h */
+//TCL_EXTERN(int)		exp_getpidproc _ANSI_ARGS_((void));
+
+extern char *exp_onexit_action;
+extern Tcl_Channel exp_debugfile;
+extern Tcl_Channel exp_logfile;
+extern int exp_logfile_all;
+extern int exp_loguser;
+extern int exp_is_debugging; /* useful to know for avoid debug calls */
 
 			/* app-specific exit handler */
 //TCL_EXTERN(void)	*exp_app_exit _ANSI_ARGS_((Tcl_Interp *));
-TCL_EXTERN(void)	exp_exit_handlers _ANSI_ARGS_((ClientData));
-TCL_EXTERN(void)	exp_error _ANSI_ARGS_(TCL_VARARGS(Tcl_Interp *,interp));
-TCL_EXTERN(int)		exp_getpidproc _ANSI_ARGS_((void));
-
 
 /*
  * Include the public function declarations that are accessible via

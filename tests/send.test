@@ -1,4 +1,4 @@
-# Commands covered:  stty
+# Commands covered:  send
 #
 # This file contains a collection of tests for one or more of the Tcl
 # built-in commands.  Sourcing this file into Tcl runs the tests and
@@ -10,23 +10,29 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
     namespace import ::tcltest::test ::tcltest::cleanupTests
 }
 
-#exp_internal -f /dev/ttyp5 0
-
-catch {unset x}
-
 log_user 0
 
-test stty-1.1 {basic stty operation} {
-	exp_spawn cat -u
-	catch {exp_stty < $spawn_out(slave,name)}
-} {0}
+#exp_internal -f /dev/ttyp5 0
 
-test stty-1.2 {basic stty operation} {
-	exp_spawn cat -u
-	catch {exp_stty -echo < $spawn_out(slave,name)}
-} {0}
+test send-1.1 {basic send operation} {
+    spawn cat
+    after 1000
+    send "foo\r"
+    expect foo
+    after 1000
+    send "\u0004"
+    expect eof
+    regexp "\r\nfoo\r\n" $expect_out(buffer)
+} {1}
 
-#exp_internal 0
+test send-1.2 {send null} {
+    spawn od -c
+    send "a\u0000b\r"
+    after 1000
+    send \u0004
+    expect eof
+    regexp "a  \\\\0   b" $expect_out(buffer)
+} {1}
 
 cleanupTests
 return

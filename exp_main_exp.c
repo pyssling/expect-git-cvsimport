@@ -18,23 +18,26 @@ int argc;
 char *argv[];
 {
 	int rc = 0;
+	char buffer [30];
+
 	Tcl_Interp *interp = Tcl_CreateInterp();
+	Tcl_FindExecutable(argv[0]);
 
 	if (Tcl_Init(interp) == TCL_ERROR) {
-		fprintf(stderr,"Tcl_Init failed: %s\n",interp->result);
-		exit(1);
+	    fprintf(stderr,"Tcl_Init failed: %s\n",interp->result);
+	    (void) exit(1);
 	}
 
 	if (Expect_Init(interp) == TCL_ERROR) {
-		fprintf(stderr,"Expect_Init failed: %s\n",interp->result);
-		exit(1);
+	    fprintf(stderr,"Expect_Init failed: %s\n",interp->result);
+	    (void) exit(1);
 	}
 
 	exp_parse_argv(interp,argc,argv);
 
 	/* become interactive if requested or "nothing to do" */
 	if (exp_interactive)
-		(void) exp_interpreter(interp);
+		(void) exp_interpreter(interp,(Tcl_Obj *)0);
 	else if (exp_cmdfile)
 		rc = exp_interpret_cmdfile(interp,exp_cmdfile);
 	else if (exp_cmdfilename)
@@ -42,7 +45,11 @@ char *argv[];
 
 	/* assert(exp_cmdlinecmds != 0) */
 
-	exp_exit(interp,rc);
+	/* SF #439042 -- Allow overide of "exit" by user / script
+	 */
+
+	sprintf(buffer, "exit %d", rc);
+	Tcl_Eval(interp, buffer); 
 	/*NOTREACHED*/
 	return 0;		/* Needed only to prevent compiler warning. */
 }

@@ -41,7 +41,8 @@ would appreciate credit if this program or parts of it are used.
 
 #include <errno.h>
 
-void debuglog();
+void expDiagLog();
+void expDiagLogU();
 
 #ifndef TRUE
 #define TRUE 1
@@ -142,7 +143,11 @@ exp_pty_test_start()
 	/* that they are not deleted (later on in this code) */
 	sprintf(locksrc,"/tmp/expect.%d",getpid());
 	(void) unlink(locksrc);
-	if (-1 == (lfd = creat(locksrc,0777))) {
+	/* stanislav shalunov <shalunov@mccme.ru> notes that creat allows */
+	/* race - someone could link to important file which root could then */
+	/* smash. */
+/*	if (-1 == (lfd = creat(locksrc,0777))) { */
+       if (-1 == (lfd = open(locksrc,O_RDWR|O_CREAT|O_EXCL,0777))) {
 		static char buf[256];
 		exp_pty_error = buf;
 		sprintf(exp_pty_error,"can't create %s, errno = %d\n",locksrc, errno);
@@ -179,7 +184,7 @@ char *num;	/* string representation of number */
 	/* with it.  This allows us to rigorously test the */
 	/* pty is usable. */
 	if (exp_pty_lock(bank,num) == 0) {
-		debuglog("pty master (%s) is locked...skipping\r\n",master_name);
+		expDiagLog("pty master (%s) is locked...skipping\r\n",master_name);
 		return(-1);
 	}
 	/* verify no one else is using slave by attempting */
@@ -196,7 +201,7 @@ char *num;	/* string representation of number */
 
 #ifdef HAVE_PTYTRAP
 	if (access(slave_name, R_OK|W_OK) != 0) {
-		debuglog("could not open slave for pty master (%s)...skipping\r\n",
+		expDiagLog("could not open slave for pty master (%s)...skipping\r\n",
 			master_name);
 		(void) close(master);
 		return -1;
@@ -211,7 +216,7 @@ char *num;	/* string representation of number */
 	cc = i_read(master,&c,1,10);
 	(void) close(master);
 	if (!(cc == 0 || cc == -1)) {
-		debuglog("%s slave open, skipping\r\n",slave_name);
+		expDiagLog("%s slave open, skipping\r\n",slave_name);
 		locked = FALSE;	/* leave lock file around so Expect's avoid */
 				/* retrying this pty for near future */
 		return -1;
@@ -228,12 +233,12 @@ char *num;	/* string representation of number */
 	cc = i_read(slave,&c,1,10);
 	(void) close(slave);
 	if (!(cc == 0 || cc == -1)) {
-		debuglog("%s master open, skipping\r\n",master_name);
+		expDiagLog("%s master open, skipping\r\n",master_name);
 		return -1;
 	}
 
 	/* seems ok, let's use it */
-	debuglog("using master pty %s\n",master_name);
+	expDiagLog("using master pty %s\n",master_name);
 	return(open(master_name,RDWR));
 #endif
 }
